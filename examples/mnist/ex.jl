@@ -22,10 +22,10 @@ end
 
 imgs, labels = MNIST.traindata()
 imgs /= 255
-numsmall = 1000
+numsmall = 300
 smallimgs = imgs[:, 1:numsmall]
 smalllabels = labels[1:size(smallimgs, 2)]
-numfeatures = 20
+numfeatures = 30
 @time nmfresult = NMF.nnmf(smallimgs, numfeatures)
 nmfimgs = map(x->min(x, 1.0), nmfresult.W * nmfresult.H)
 #=
@@ -39,8 +39,9 @@ nmfB = copy(nmfresult.W)
 rescaleB!(nmfB)
 solver = ThreeQ.DWQMI.getdw2xsys4(mytoken)
 #solver = ThreeQ.DWQMI.defaultsolver
-num_reads = 1000
-@time B, C = Origami.factor(smallimgs, numfeatures; B=nmfB, qubosolver=solver, num_reads=num_reads, timeout=num_reads * numsmall / 1000 * 3)
+num_reads = 100
+#@time B, C = Origami.factor(smallimgs, numfeatures; B=nmfB, qubosolver=solver, num_reads=num_reads, timeout=num_reads * numsmall / 1000 * 3 + 60, min_iter=3, param_chain_factor=3e0)
+@time B, C = Origami.factor(smallimgs, numfeatures; qubosolver=solver, num_reads=num_reads, timeout=num_reads * numsmall / 1000 * 3 + 60, min_iter=3, param_chain_factor=1e0)
 showimgs(map(i->B[:, i], 1:size(B, 2))...)
 A = B * C
 for i = 1:5

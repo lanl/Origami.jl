@@ -16,7 +16,19 @@ solvequbo(A, B)
 ```
 Returns a binary matrix C that makes ||A - B*C|| small.
 """
-function solvequbo(A, B, qubosolver=Qbsolv(); timeout=size(A, 2) * 3, kwargs...)
+function solvequbo(A, B, qubosolver::Qbsolv; timeout=size(A, 2) * 3, trueC=nothing, kwargs...)
+	C = Array(Float64, size(B, 2), size(A, 2))
+	badcols = Array{Int64, 1}[]
+	goodcols = Array{Int64, 1}[]
+	for j = 1:size(A, 2)
+		m, Ccol = setupsmallqubo(A, B, j; connection="online", solver="DW2X_SYS4")
+		ThreeQ.qbsolv!(m; minval=-sum(A[:, j] .^ 2))
+		C[:, j] = Ccol.value
+	end
+	return C
+end
+
+function solvequbo(A, B, qubosolver; timeout=size(A, 2) * 3, kwargs...)
 	ms = Any[]
 	Ccols = Any[]
 	stuffs = Any[]
@@ -35,12 +47,26 @@ function solvequbo(A, B, qubosolver=Qbsolv(); timeout=size(A, 2) * 3, kwargs...)
 	@time for j = 1:size(A, 2)
 		m = ms[j]
 		stuff = stuffs[j]
-		ThreeQ.finishsolve!(m, stuff...)
+		ThreeQ.finishsolve!(m, stuff...; kwargs...)
 		besti = 1
+		bestenergy = Inf
+		gotavalid = false
 		for i = 1:length(m.energies)
 			@ThreeQ.loadsolution m energy occurrences isvalid i
-			if isvalid && energy < m.energies[besti]
+			gotavalid = gotavalid || isvalid
+			if isvalid && energy < bestenergy
+				bestenergy = energy
 				besti = i
+			end
+		end
+		if gotavalid == false
+			warn("no valid solutions: $j")
+			for i = 1:length(m.energies)
+				@ThreeQ.loadsolution m energy occurrences isvalid i
+				if energy < bestenergy
+					bestenergy = energy
+					besti = i
+				end
 			end
 		end
 		@ThreeQ.loadsolution m energy occurrences isvalid besti
@@ -49,17 +75,17 @@ function solvequbo(A, B, qubosolver=Qbsolv(); timeout=size(A, 2) * 3, kwargs...)
 	return C
 end
 
-function setupsmallqubo(A, B, j)
-	m = ThreeQ.Model("Origami_$j", "lanl", "DW2X", "workingdir", "lanl_dw2x")
+function setupsmallqubo(A, B, j; connection="lanl", solver="DW2X", workspace="lanl_dw2x")
+	m = ThreeQ.Model("Origami_$j", connection, solver, "workingdir", workspace)
 	@ThreeQ.defvar m Ccolj[1:size(B, 2)]
 	for k = 1:size(B, 2)
-		lincoeff = 0.
+		lincoeff = 0.0
 		for i = 1:size(A, 1)
 			lincoeff += B[i, k] * (B[i, k] - 2 * A[i, j])
 		end
 		@ThreeQ.addterm m lincoeff * Ccolj[k]
-		quadcoeff = 0.
 		for l = 1:k - 1
+			quadcoeff = 0.0
 			for i = 1:size(A, 1)
 				quadcoeff += 2 * B[i, k] * B[i, l]
 			end
@@ -132,7 +158,7 @@ function solvesmalllsq(A, C, i; max_iter=100, print_level=0, regularization=1e-2
 	return JuMP.getvalue(Browi)
 end
 
-function factor(A, k; B=rand(size(A, 1), k), C=rand([0, 1], k, size(A, 2)), min_iter=3, max_iter=100, max_lsq_iter=100, print_level=0, tol=1e-6, tol_progress=1e-6, regularization=1e-2, qubosolver=Qbsolv(), kwargs...)
+function factor(A, k; trueC=nothing, B=rand(size(A, 1), k), C=rand([0, 1], k, size(A, 2)), min_iter=3, max_iter=100, max_lsq_iter=100, print_level=0, tol=1e-6, tol_progress=1e-6, regularization=1e-2, qubosolver=Qbsolv(), kwargs...)
 	bestB = B
 	bestC = C
 	lastnorm = Inf
@@ -142,6 +168,15 @@ function factor(A, k; B=rand(size(A, 1), k), C=rand([0, 1], k, size(A, 2)), min_
 	Main.showimgs(map(i->B[:, i], 1:size(B, 2))...)
 	for i = 1:max_iter
 		tqubo += @elapsed C = solvequbo(A, B, qubosolver; kwargs...)
+		#=
+		if trueC != nothing
+			for i = 1:size(C, 2)
+				if C[:, i] != trueC[:, i]
+					@show i, C[:, i], trueC[:, i]
+				end
+			end
+		end
+		=#
 		tlsq += @elapsed B = solvelsq(A, C; max_iter=max_lsq_iter, print_level=print_level, regularization=regularization)
 		Main.showimgs(map(i->B[:, i], 1:size(B, 2))...)
 		thisnorm = vecnorm(A - B * C)
