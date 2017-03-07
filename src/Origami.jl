@@ -2,6 +2,7 @@ module Origami
 
 import JuMP
 import Ipopt
+import ProgressMeter
 import RobustPmap
 import ThreeQ
 
@@ -16,7 +17,7 @@ solvequbo(A, B)
 ```
 Returns a binary matrix C that makes ||A - B*C|| small.
 """
-function solvequbo(A, B, qubosolver::Qbsolv; timeout=size(A, 2) * 3, trueC=nothing, kwargs...)
+function solvequbo(A, B, qubosolver::Qbsolv; timeout=size(A, 2) * 3, kwargs...)
 	C = Array(Float64, size(B, 2), size(A, 2))
 	badcols = Array{Int64, 1}[]
 	goodcols = Array{Int64, 1}[]
@@ -33,38 +34,58 @@ function solvequbo(A, B, qubosolver; timeout=size(A, 2) * 3, kwargs...)
 	Ccols = Any[]
 	stuffs = Any[]
 	C = Array(Float64, size(B, 2), size(A, 2))
-	println("submit")
-	@time for j = 1:size(A, 2)
-		m, Ccol = setupsmallqubo(A, B, j)
-		push!(ms, m)
-		push!(Ccols, Ccol)
-		stuff = ThreeQ.solvesapi!(m; async=true, solver=qubosolver, reuse_embedding=true, auto_scale=true, kwargs...)
-		push!(stuffs, stuff)
+	ready = fill(false, size(A, 2))
+	submittimes = zeros(Float64, 5)
+	ThreeQ.DWQMI.zerototaltimes!()
+	ThreeQ.zerototaltimes!()
+	@ProgressMeter.showprogress 1 "Submit QUBOs..." for j = 1:size(A, 2)
+		submittimes[1] += @elapsed m, Ccol = setupsmallqubo(A, B, j)
+		submittimes[2] += @elapsed push!(ms, m)
+		submittimes[3] += @elapsed push!(Ccols, Ccol)
+		submittimes[4] += @elapsed stuff = ThreeQ.solvesapi!(m; async=true, solver=qubosolver, reuse_embedding=true, auto_scale=true, kwargs...)
+		ready[j] = true
+		submittimes[5] += @elapsed push!(stuffs, stuff)
 	end
-	println("await")
-	@time ThreeQ.DWQMI.dwcore.await_completion(map(x->x[1], stuffs), length(stuffs), timeout)
-	println("finish")
-	@time for j = 1:size(A, 2)
+	@show submittimes
+	@show ThreeQ.DWQMI.totaltimes
+	@show ThreeQ.totaltimes
+	numinvalid = 0
+	t0 = now()
+	timeawaitcomplete = t0 - t0
+	ps = map(s->s[1], stuffs)
+	embeddingss = map(s->s[2], stuffs)
+	i2varstrings = map(s->s[3], stuffs)
+	println("await_finish")
+	@time ThreeQ.await_finishsolve!(ms, ps, embeddingss, i2varstrings; kwargs...)
+	@ProgressMeter.showprogress 1 "Get results..." for j = 1:size(A, 2)
+		#=
+		while !ready[j]
+			sleep(0.01)
+		end
+		t0 = now()
+		if !ThreeQ.DWQMI.dwcore.await_completion([stuffs[j][1]], 1, 60)
+			error("timed out waiting for a problem to complete")
+		end
+		timeawaitcomplete += now() - t0
+		=#
 		m = ms[j]
 		stuff = stuffs[j]
-		ThreeQ.finishsolve!(m, stuff...; kwargs...)
+		#ThreeQ.finishsolve!(m, stuff...; kwargs...)
 		besti = 1
 		bestenergy = Inf
 		gotavalid = false
 		for i = 1:length(m.energies)
-			@ThreeQ.loadsolution m energy occurrences isvalid i
-			gotavalid = gotavalid || isvalid
-			if isvalid && energy < bestenergy
-				bestenergy = energy
+			gotavalid = gotavalid || m.valid[i]
+			if m.valid[i] && m.energies[i] < bestenergy
+				bestenergy = m.energies[i]
 				besti = i
 			end
 		end
 		if gotavalid == false
-			warn("no valid solutions: $j")
+			numinvalid += 1
 			for i = 1:length(m.energies)
-				@ThreeQ.loadsolution m energy occurrences isvalid i
-				if energy < bestenergy
-					bestenergy = energy
+				if m.energies[i] < bestenergy
+					bestenergy = m.energies[i]
 					besti = i
 				end
 			end
@@ -72,7 +93,26 @@ function solvequbo(A, B, qubosolver; timeout=size(A, 2) * 3, kwargs...)
 		@ThreeQ.loadsolution m energy occurrences isvalid besti
 		C[:, j] = Ccols[j].value
 	end
+	println("total waiting time: $(float(timeawaitcomplete) / 1000) seconds")
+	if numinvalid > 0
+		warn("$(numinvalid / size(A, 2) * 100)% have no valid solutions")
+	end
 	return C
+end
+
+function setupsmallqubonew(A, B, j)
+	Q = zeros(size(B, 2), size(B, 2))
+	for k = 1:size(B, 2)
+		for i = 1:size(A, 1)
+			Q[k] += B[i, k] * (B[i, k] - 2 * A[i, j])
+		end
+		for l = 1:k - 1
+			for i = 1:size(A, 1)
+				Q[k, l] += 2 * B[i, k] * B[i, l]
+			end
+		end
+	end
+	return Q
 end
 
 function setupsmallqubo(A, B, j; connection="lanl", solver="DW2X", workspace="lanl_dw2x")
@@ -158,34 +198,25 @@ function solvesmalllsq(A, C, i; max_iter=100, print_level=0, regularization=1e-2
 	return JuMP.getvalue(Browi)
 end
 
-function factor(A, k; trueC=nothing, B=rand(size(A, 1), k), C=rand([0, 1], k, size(A, 2)), min_iter=3, max_iter=100, max_lsq_iter=100, print_level=0, tol=1e-6, tol_progress=1e-6, regularization=1e-2, qubosolver=Qbsolv(), kwargs...)
+function factor(A, k; B=rand(size(A, 1), k), C=rand([0, 1], k, size(A, 2)), min_iter=3, max_iter=100, max_lsq_iter=100, print_level=0, tol=1e-6, tol_progress=1e-6, regularization=1e-2, qubosolver=Qbsolv(), callback=(B,C,i)->nothing, kwargs...)
 	bestB = B
 	bestC = C
 	lastnorm = Inf
 	bestnorm = Inf
 	tlsq = 0.0
 	tqubo = 0.0
-	Main.showimgs(map(i->B[:, i], 1:size(B, 2))...)
+	callback(B, C, 0)
 	for i = 1:max_iter
 		tqubo += @elapsed C = solvequbo(A, B, qubosolver; kwargs...)
-		#=
-		if trueC != nothing
-			for i = 1:size(C, 2)
-				if C[:, i] != trueC[:, i]
-					@show i, C[:, i], trueC[:, i]
-				end
-			end
-		end
-		=#
 		tlsq += @elapsed B = solvelsq(A, C; max_iter=max_lsq_iter, print_level=print_level, regularization=regularization)
-		Main.showimgs(map(i->B[:, i], 1:size(B, 2))...)
+		callback(B, C, i)
 		thisnorm = vecnorm(A - B * C)
 		if thisnorm < bestnorm
 			bestB = B
 			bestC = C
 			bestnorm = thisnorm
 		end
-		@show thisnorm
+		println("relative error: $(thisnorm / vecnorm(A))")
 		if thisnorm < tol || thisnorm > lastnorm - tol_progress
 			if i > min_iter
 				break
@@ -193,7 +224,8 @@ function factor(A, k; trueC=nothing, B=rand(size(A, 1), k), C=rand([0, 1], k, si
 		end
 		lastnorm = thisnorm
 	end
-	@show vecnorm(A - bestB * bestC)
+	thisnorm = vecnorm(A - bestB * bestC)
+	println("relative error: $(thisnorm / vecnorm(A))")
 	@show tlsq, tqubo
 	return bestB, bestC
 end
