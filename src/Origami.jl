@@ -33,8 +33,6 @@ function solvequbo(A, B, qubosolver; timeout=size(A, 2) * 3, kwargs...)
 	Qs = Any[]
 	stuffs = Any[]
 	C = SharedArray(Float64, size(B, 2), size(A, 2))
-	ThreeQ.DWQMI.zerototaltimes!()
-	ThreeQ.zerototaltimes!()
 	for j = 1:size(A, 2)
 		Q = setupsmallqubo(A, B, j)
 		push!(Qs, Q)
@@ -52,7 +50,7 @@ function setupsmallqubo(A, B, j)
 	Q = zeros(size(B, 2), size(B, 2))
 	for k = 1:size(B, 2)
 		for i = 1:size(A, 1)
-			Q[k] += B[i, k] * (B[i, k] - 2 * A[i, j])
+			Q[k, k] += B[i, k] * (B[i, k] - 2 * A[i, j])
 		end
 		for l = 1:k - 1
 			for i = 1:size(A, 1)
