@@ -83,18 +83,18 @@ function solvesmalllsq(A, C, i; max_iter=100, print_level=0, regularization=1e-2
 	return JuMP.getvalue(Browi)
 end
 
-function factor(A, k; B=rand(size(A, 1), k), C=rand([0, 1], k, size(A, 2)), min_iter=3, max_iter=100, max_lsq_iter=100, print_level=0, tol=1e-6, tol_progress=1e-6, regularization=1e-2, qubosolver=ThreeQ.DWQMI.defaultsolver, callback=(B,C,i)->nothing, kwargs...)
+function factor(A, k; B=rand(size(A, 1), k), C=rand([0, 1], k, size(A, 2)), min_iter=3, max_iter=100, max_lsq_iter=100, print_level=0, tol=1e-6, tol_progress=1e-6, regularization=1e-2, qubosolver=ThreeQ.DWQMI.defaultsolver, callback=(B,C,i,tlsq,tqubo)->nothing, kwargs...)
 	bestB = B
 	bestC = C
 	lastnorm = Inf
 	bestnorm = Inf
 	tlsq = 0.0
 	tqubo = 0.0
-	callback(B, C, 0)
+	callback(B, C, 0, tlsq, tqubo)
 	for i = 1:max_iter
 		tqubo += @elapsed C = solvequbo(A, B, qubosolver; kwargs...)
 		tlsq += @elapsed B = solvelsq(A, C; max_iter=max_lsq_iter, print_level=print_level, regularization=regularization)
-		callback(B, C, i)
+		callback(B, C, i, tlsq, tqubo)
 		thisnorm = vecnorm(A - B * C)
 		if thisnorm < bestnorm
 			bestB = B
