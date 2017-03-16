@@ -1,82 +1,52 @@
-import Colors
-import Images
-import MNIST
 import NMF
 import Origami
 import ThreeQ
 import PyPlot
 
-function showimg(x)
-	display(Colors.Gray.(reshape(x, 28, 28))); println()
-end
-function showimgs(x...)
-	#=
-	maxx = maximum(map(y->maximum(y), x))
-	x = map(y->y / maxx, x)
-	display(Colors.Gray.(hcat(map(y->reshape(y, 28, 28), x)...))); println()
-	=#
-	fig, axs = PyPlot.subplots(length(x))
-	for i = 1:length(x)
-		axs[i][:plot](x[i])
-	end
-	display(fig); println()
-	PyPlot.close(fig)
+const tqubos = Float64[]
+const tlsqs = Float64[]
+function callback(B, C, i, tlsq, tqubo)
+	push!(tlsqs, tlsq)
+	push!(tqubos, tqubo)
+	@show tlsqs
+	@show tqubos
+	JLD.save("BnC_iteration_$(i)_$(numsmall)_$(numfeatures)_$(num_reads).jld", "B", B, "C", C, "tqubos", tqubos, "tlsqs", tlsqs)
 end
 
-halfnumsourcesignals = 5
-numsourcesignals = 2 * halfnumsourcesignals
-#sourcesignals = Array{Float64, 1}[]
-timepoints = 200
-sourcesignals = zeros(timepoints, numsourcesignals)
+phases = collect(linspace(0, pi, 7))
+modes = [1 / 4, .5, 1.0, 2.0, 4.0]
+numsourcesignals = length(phases) * length(modes)
+timepoints = 500
+B = zeros(timepoints, numsourcesignals)
 xs = linspace(0, 2 * pi, timepoints)
-for i = 1:halfnumsourcesignals
-	sourcesignals[:, 2 * i - 1] = sin.(2 ^ i * xs) + 1.0
-	sourcesignals[:, 2 * i] =  cos.(2 ^ i * xs) + 1.0
+i = 1
+for phase in phases, mode in modes
+	B[:, i] = sin.(phase + mode * xs) + 1.0
+	i += 1
 end
 
 srand(0)
-numsmall = 100
-mixingmatrix = rand([0, 1], numsourcesignals, numsmall)
-imgs = sourcesignals * mixingmatrix
-smallimgs = imgs[:, 1:numsmall]
-#=
-showimgs(map(i->sourcesignals[:, i], 1:size(sourcesignals, 2))...)
-showimgs(map(i->smallimgs[:, i], 1:20)...)
-=#
-
-#=
-for i = 1:timepoints
-	estBrowi = Origami.solvesmalllsq(smallimgs, mixingmatrix, i; print_level=1)
-	@show vecnorm(estBrowi - sourcesignals[i, :])
-end
-=#
+numsmall = 10000
+C = rand([0, 1], numsourcesignals, numsmall)
+A = B * C
 
 numfeatures = numsourcesignals
-@time nmfresult = NMF.nnmf(smallimgs, numfeatures)
-nmfimgs = nmfresult.W * nmfresult.H
-showimgs(map(i->nmfresult.W[:, i], 1:size(nmfresult.W, 2))...)
-@show vecnorm(nmfimgs - smallimgs)
-@show vecnorm(smallimgs)
-nmfB = copy(nmfresult.W)
-solver = ThreeQ.DWQMI.getdw2xsys4(mytoken)
-#solver = ThreeQ.DWQMI.defaultsolver
-num_reads = 1000
-param_chain_factor = 1e2
-estC = Origami.solvequbo(smallimgs, sourcesignals, solver; B=nmfB, qubosolver=solver, num_reads=num_reads, timeout=num_reads * numsmall / 1000 * 3 + 60, min_iter=3, param_chain_factor=param_chain_factor)
-#estC = Origami.solvequbo(smallimgs, sourcesignals, Origami.Qbsolv(); trueC=mixingmatrix, B=nmfB, qubosolver=solver, num_reads=num_reads, timeout=num_reads * numsmall / 1000 * 3 + 60, min_iter=3, param_chain_factor=param_chain_factor)
-numwrong = 0
-for i = 1:size(estC, 2)
-	if estC[:, i] != mixingmatrix[:, i]
-		numwrong += 1
-	end
+if !isdefined(:nmfA)
+	println("nmf time:")
+	@time nmfresult = NMF.nnmf(A, numfeatures)
+	nmfB = nmfresult.W
+	nmfC = nmfresult.H
+	nmfA = nmfresult.W * nmfresult.H
+	@show vecnorm(A - nmfA) / vecnorm(A)
 end
-@show numwrong / size(estC, 2)
 
-
-#@time B, C = Origami.factor(smallimgs, numfeatures; trueC=mixingmatrix, B=sourcesignals, qubosolver=solver, num_reads=num_reads, timeout=num_reads * numsmall / 1000 * 3 + 60, min_iter=3, param_chain_factor=param_chain_factor)
-@time B, C = Origami.factor(smallimgs, numfeatures; qubosolver=solver, num_reads=num_reads, timeout=num_reads * numsmall / 1000 * 3 + 60, min_iter=3, param_chain_factor=1e0)
-showimgs(map(i->B[:, i], 1:size(B, 2))...)
-A = B * C
-for i = 1:5
-	showimgs(smallimgs[:, i], A[:, i])
+if !isdefined(:solver)
+	solver = ThreeQ.DWQMI.getdw2xsys4(mytoken)
+	#solver = ThreeQ.DWQMI.defaultsolver
+	adjacency = ThreeQ.DWQMI.getadjacency(solver)
 end
+
+num_reads = 100
+@time dwB, dwC = Origami.factor(A, numfeatures; qubosolver=solver, num_reads=num_reads, min_iter=3, max_iter=5, embedding_dir=abspath("../faces/embeddings"), callback=callback, token=mytoken)
+dwA = dwB * dwC
+@show vecnorm(A - dwA) / vecnorm(A)
