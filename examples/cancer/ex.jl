@@ -7,8 +7,8 @@ if !isdefined(:solver)
 	adjacency = ThreeQ.DWQMI.getadjacency(solver)
 end
 
-num_reads = 100
-num_repeats = 2
+num_reads = 1000
+num_repeats = 100
 ks = eval(parse(ARGS[1]))
 Bs = Dict()
 Cs = Dict()
@@ -18,7 +18,7 @@ for k in ks
 		Cs[k] = Array(Array{Float64, 2}, num_repeats)
 		for i = 1:num_repeats
 			@show i, k
-			B, C = Origami.factor(A, k; num_reads=num_reads, token=mytoken, adjacency=adjacency, qubosolver=solver, regularization=0)
+			B, C = Origami.factor(A, k; num_reads=num_reads, token=mytoken, adjacency=adjacency, qubosolver=solver, regularization=0, param_chain_factor=1e-2)
 			Bs[k][i] = B
 			Cs[k][i] = C
 			writecsv("csvs/W_$(k)_$(lpad(i, 5, 0)).csv", B)
