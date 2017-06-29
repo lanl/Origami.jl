@@ -9,7 +9,11 @@ end
 
 num_reads = 1000
 num_repeats = 100
-ks = eval(parse(ARGS[1]))
+if length(ARGS) > 0
+	ks = eval(parse(ARGS[1]))
+else
+	ks = collect(3:7)
+end
 Bs = Dict()
 Cs = Dict()
 for k in ks
@@ -26,7 +30,22 @@ for k in ks
 		end
 		JLD.save("results_$k.jld", "Bs", Bs, "Cs", Cs)
 	end
-	Bs[k], Cs[k] = JLD.load("results_$k.jld", "Bs", "Cs")
+	t1, t2 = JLD.load("results_$k.jld", "Bs", "Cs")
+	Bs[k] = t1[k]
+	Cs[k] = t2[k]
 end
 for k in ks
+	bestind = 0
+	bestnorm = Inf
+	for i = 1:length(Bs[k])
+		thisnorm = vecnorm(A - Bs[k][i] * Cs[k][i])
+		if thisnorm < bestnorm
+			bestnorm = thisnorm
+			bestind = i
+		end
+	end
+	W = readcsv("csvs/W_$(k)_$(lpad(bestind, 5, 0)).csv")
+	H = readcsv("csvs/H_$(k)_$(lpad(bestind, 5, 0)).csv")
+	#@show bestnorm, "csvs/W_$(k)_$(lpad(bestind, 5, 0)).csv", "csvs/H_$(k)_$(lpad(bestind, 5, 0)).csv"
+	println("$k components: norm=$(bestnorm), csvs/W_$(k)_$(lpad(bestind, 5, 0)).csv, csvs/H_$(k)_$(lpad(bestind, 5, 0)).csv")
 end
