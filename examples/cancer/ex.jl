@@ -1,7 +1,12 @@
 import Origami
 import NMF
 
-A = readcsv("cancer_mutation_data.csv")
+Aprenorm = readcsv("cancer_mutation_data.csv")
+A = copy(Aprenorm)
+for i = 1:size(A, 2)
+	A[:, i] /= sum(A[:, i])
+end
+
 if !isdefined(:solver)
 	solver = ThreeQ.DWQMI.getdw2xsys4(mytoken)
 	adjacency = ThreeQ.DWQMI.getadjacency(solver)
@@ -25,8 +30,8 @@ for k in ks
 			B, C = Origami.factor(A, k; num_reads=num_reads, token=mytoken, adjacency=adjacency, qubosolver=solver, regularization=0, param_chain_factor=1e-2)
 			Bs[k][i] = B
 			Cs[k][i] = C
-			writecsv("csvs/W_$(k)_$(lpad(i, 5, 0)).csv", B)
-			writecsv("csvs/H_$(k)_$(lpad(i, 5, 0)).csv", C)
+			writecsv("normcsvs/W_$(k)_$(lpad(i, 5, 0)).csv", B)
+			writecsv("normcsvs/H_$(k)_$(lpad(i, 5, 0)).csv", C)
 		end
 		JLD.save("results_$k.jld", "Bs", Bs, "Cs", Cs)
 	end
@@ -44,8 +49,8 @@ for k in ks
 			bestind = i
 		end
 	end
-	W = readcsv("csvs/W_$(k)_$(lpad(bestind, 5, 0)).csv")
-	H = readcsv("csvs/H_$(k)_$(lpad(bestind, 5, 0)).csv")
-	#@show bestnorm, "csvs/W_$(k)_$(lpad(bestind, 5, 0)).csv", "csvs/H_$(k)_$(lpad(bestind, 5, 0)).csv"
-	println("$k components: norm=$(bestnorm), csvs/W_$(k)_$(lpad(bestind, 5, 0)).csv, csvs/H_$(k)_$(lpad(bestind, 5, 0)).csv")
+	W = readcsv("normcsvs/W_$(k)_$(lpad(bestind, 5, 0)).csv")
+	H = readcsv("normcsvs/H_$(k)_$(lpad(bestind, 5, 0)).csv")
+	#@show bestnorm, "normcsvs/W_$(k)_$(lpad(bestind, 5, 0)).csv", "normcsvs/H_$(k)_$(lpad(bestind, 5, 0)).csv"
+	println("$k components: norm=$(bestnorm), normcsvs/W_$(k)_$(lpad(bestind, 5, 0)).csv, normcsvs/H_$(k)_$(lpad(bestind, 5, 0)).csv")
 end
