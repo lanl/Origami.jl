@@ -27,7 +27,7 @@ for k in ks
 		Cs[k] = Array(Array{Float64, 2}, num_repeats)
 		for i = 1:num_repeats
 			@show i, k
-			B, C = Origami.factor(A, k; num_reads=num_reads, token=mytoken, adjacency=adjacency, qubosolver=solver, regularization=0, param_chain_factor=1e-2)
+			B, C = Origami.factor(A, k; num_reads=num_reads, token=mytoken, adjacency=adjacency, qubosolver=solver, regularization=1e0, param_chain_factor=1e-2)
 			Bs[k][i] = B
 			Cs[k][i] = C
 			writecsv("normcsvs/W_$(k)_$(lpad(i, 5, 0)).csv", B)
