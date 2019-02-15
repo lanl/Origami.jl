@@ -42,12 +42,12 @@ function callback(B, C, i, tlsq, tqubo)
 	@show tqubos
 	JLD.save("BnC_iteration_$(i)_$(numsmall)_$(numfeatures)_$(num_reads).jld", "B", B, "C", C, "tqubos", tqubos, "tlsqs", tlsqs)
 end
-if !isdefined(:solver)
-	solver = ThreeQ.DWQMI.getdw2xsys4(mytoken)
+if !(@isdefined solver)
+	solver = ThreeQ.DWQMI.getdw2q(mytoken)
 	#solver = ThreeQ.DWQMI.defaultsolver
 	adjacency = ThreeQ.DWQMI.getadjacency(solver)
 end
-num_reads = 10000
+num_reads = 1000
 #=
 for i = 1:10
 	reload("ThreeQ"); reload("Origami")
