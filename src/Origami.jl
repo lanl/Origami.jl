@@ -75,13 +75,13 @@ end
 
 function solvesmalllsq(A, C, i; max_iter=100, print_level=0, regularization=1e-2)
 	#A[i, j] = B[i, :]⋅C[:, j]
-	m = JuMP.Model(solver=Ipopt.IpoptSolver(max_iter=max_iter, print_level=print_level))
+	m = JuMP.Model(JuMP.with_optimizer(Ipopt.Optimizer; max_iter=max_iter, print_level=print_level))
 	Browi0 = map(x->max(0.0, x), C' \ A[i, :])
 	@JuMP.variable(m, Browi[j=1:size(C, 1)], start=Browi0[j])
 	@JuMP.constraint(m, Browi .>= 0)
 	@JuMP.objective(m, Min, sum((A[i, j] - sum(Browi[k] * C[k, j] for k = 1:size(C, 1))) ^ 2 for j = 1:size(A, 2)) + regularization * sum(Browi[k] ^ 2 for k = 1:size(C, 1)))
-	JuMP.solve(m)
-	return JuMP.getvalue(Browi)
+	JuMP.optimize!(m)
+	return JuMP.value.(Browi)
 end
 
 function factor(A, k; B=rand(size(A, 1), k), C=rand([0, 1], k, size(A, 2)), min_iter=3, max_iter=100, max_lsq_iter=100, print_level=0, tol=1e-6, tol_progress=1e-6, regularization=1e-2, qubosolver=ThreeQ.DWQMI.defaultsolver, callback=(B,C,i,tlsq,tqubo)->nothing, kwargs...)
