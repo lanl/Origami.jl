@@ -6,7 +6,7 @@ Description
 
 Origami is a [Julia](http://julialang.org/) module that factors a matrix into the product of two low-rank matrices. One of the matrices has nonnegative components and the other has binary components.
 
-A number of [examples](https://github.com/lanl/Origami.jl/tree/master/examples) are including that illustrate how to use Origami. A manuscript describing the methodology can be read [here](https://arxiv.org/abs/1704.01605).
+A number of [examples](https://github.com/lanl/Origami.jl/tree/master/examples) are including that illustrate how to use Origami. A manuscript describing the methodology can be read [here](https://doi.org/10.1371/journal.pone.0206653).
 
 Installation
 ------------
