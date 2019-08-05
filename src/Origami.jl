@@ -30,14 +30,18 @@ solvequbo(A, B)
 ```
 Returns a binary matrix C that makes ||A - B*C|| small.
 """
-function solvequbo(A, B, qubosolver; timeout=size(A, 2) * 3, kwargs...)
+function solvequbo(A, B, oldC, qubosolver; timeout=size(A, 2) * 3, do_forward_anneal=true, kwargs...)
 	Qs = Any[]
 	stuffs = Any[]
 	C = SharedArrays.SharedArray{Float64}(size(B, 2), size(A, 2))
 	for j = 1:size(A, 2)
 		Q = setupsmallqubo(A, B, j)
 		push!(Qs, Q)
-		stuff = ThreeQ.solvesapi!(Q; async=true, solver=qubosolver, reuse_embedding=true, auto_scale=true, kwargs...)
+		if do_forward_anneal
+			stuff = ThreeQ.solvesapi!(Q; async=true, solver=qubosolver, reuse_embedding=true, auto_scale=true, kwargs...)
+		else
+			stuff = ThreeQ.solvesapi!(Q; async=true, solver=qubosolver, reuse_embedding=true, auto_scale=true, initial_state=oldC[:, j], kwargs...)
+		end
 		push!(stuffs, stuff)
 	end
 	ps = map(s->s[1], stuffs)
@@ -93,7 +97,7 @@ function factor(A, k; B=rand(size(A, 1), k), C=rand([0, 1], k, size(A, 2)), min_
 	tqubo = 0.0
 	callback(B, C, 0, tlsq, tqubo)
 	for i = 1:max_iter
-		tqubo += @elapsed C = solvequbo(A, B, qubosolver; kwargs...)
+		tqubo += @elapsed C = solvequbo(A, B, C, qubosolver; kwargs...)
 		tlsq += @elapsed B = solvelsq(A, C; max_iter=max_lsq_iter, print_level=print_level, regularization=regularization)
 		callback(B, C, i, tlsq, tqubo)
 		thisnorm = LinearAlgebra.norm(A - B * C)
